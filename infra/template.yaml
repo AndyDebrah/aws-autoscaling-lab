@@ -1,56 +1,31 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: >
-  NSS-AWS-PHASE-2 Auto Scaling Lab — Highly Available Web Tier
-  with ALB, ASG, NAT Gateway across two AZs in eu-north-1.
+Description: Auto Scaling Lab - Highly Available Web Tier with ALB and ASG
 
-# ============================================================
-# PARAMETERS
-# ============================================================
 Parameters:
-
   EnvironmentName:
     Type: String
     Default: AutoScalingLab
-    Description: Prefix used to name all resources
-
   VpcCIDR:
     Type: String
     Default: 10.0.0.0/16
-
   PublicSubnet1CIDR:
     Type: String
     Default: 10.0.1.0/24
-
   PublicSubnet2CIDR:
     Type: String
     Default: 10.0.2.0/24
-
   PrivateSubnet1CIDR:
     Type: String
     Default: 10.0.3.0/24
-
   PrivateSubnet2CIDR:
     Type: String
     Default: 10.0.4.0/24
-
   InstanceType:
     Type: String
     Default: t3.micro
-    Description: t3.micro is available in eu-north-1
 
-  LatestAmiId:
-    Type: String
-    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
-    Description: SSM path for latest Amazon Linux 2 AMI
-    
-# ============================================================
-# RESOURCES
-# ============================================================
 Resources:
 
-  # ----------------------------------------------------------
-  # 1. VPC
-  # ----------------------------------------------------------
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -61,10 +36,6 @@ Resources:
         - Key: Name
           Value: !Sub "${EnvironmentName}-VPC"
 
-  # ----------------------------------------------------------
-  # 2. INTERNET GATEWAY
-  # Gives the VPC a door to the public internet
-  # ----------------------------------------------------------
   InternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
@@ -78,15 +49,12 @@ Resources:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
 
-  # ----------------------------------------------------------
-  # 3. PUBLIC SUBNETS — ALB lives here (2 AZs required)
-  # ----------------------------------------------------------
   PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
       CidrBlock: !Ref PublicSubnet1CIDR
-      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      AvailabilityZone: !Select [0, !GetAZs ""]
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
@@ -97,21 +65,18 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       CidrBlock: !Ref PublicSubnet2CIDR
-      AvailabilityZone: !Select [ 1, !GetAZs "" ]
+      AvailabilityZone: !Select [1, !GetAZs ""]
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
           Value: !Sub "${EnvironmentName}-Public-AZ2"
 
-  # ----------------------------------------------------------
-  # 4. PRIVATE SUBNETS — EC2 instances live here (no public IP)
-  # ----------------------------------------------------------
   PrivateSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
       CidrBlock: !Ref PrivateSubnet1CIDR
-      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      AvailabilityZone: !Select [0, !GetAZs ""]
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
@@ -122,25 +87,17 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       CidrBlock: !Ref PrivateSubnet2CIDR
-      AvailabilityZone: !Select [ 1, !GetAZs "" ]
+      AvailabilityZone: !Select [1, !GetAZs ""]
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
           Value: !Sub "${EnvironmentName}-Private-AZ2"
 
-  # ----------------------------------------------------------
-  # 5. NAT GATEWAY
-  # Sits in PUBLIC subnet, gives private EC2s outbound internet
-  # access (for yum install) without exposing them inbound
-  # ----------------------------------------------------------
   NatGatewayEIP:
     Type: AWS::EC2::EIP
     DependsOn: InternetGatewayAttachment
     Properties:
       Domain: vpc
-      Tags:
-        - Key: Name
-          Value: !Sub "${EnvironmentName}-NAT-EIP"
 
   NatGateway:
     Type: AWS::EC2::NatGateway
@@ -151,11 +108,6 @@ Resources:
         - Key: Name
           Value: !Sub "${EnvironmentName}-NATGateway"
 
-  # ----------------------------------------------------------
-  # 6. ROUTE TABLES
-  # Public RT  → 0.0.0.0/0 via Internet Gateway
-  # Private RT → 0.0.0.0/0 via NAT Gateway
-  # ----------------------------------------------------------
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -211,11 +163,6 @@ Resources:
       SubnetId: !Ref PrivateSubnet2
       RouteTableId: !Ref PrivateRouteTable
 
-  # ----------------------------------------------------------
-  # 7. SECURITY GROUPS
-  # ALB SG  → accepts HTTP from anywhere (port 80)
-  # EC2 SG  → accepts HTTP ONLY from the ALB (not the internet)
-  # ----------------------------------------------------------
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -244,10 +191,6 @@ Resources:
         - Key: Name
           Value: !Sub "${EnvironmentName}-EC2-SG"
 
-  # ----------------------------------------------------------
-  # 8. APPLICATION LOAD BALANCER
-  # Internet-facing, lives in both public subnets
-  # ----------------------------------------------------------
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
@@ -259,15 +202,7 @@ Resources:
         - !Ref PublicSubnet2
       SecurityGroups:
         - !Ref ALBSecurityGroup
-      Tags:
-        - Key: Name
-          Value: !Sub "${EnvironmentName}-ALB"
 
-  # ----------------------------------------------------------
-  # 9. TARGET GROUP
-  # The ALB forwards traffic here; ASG registers instances here
-  # Health check hits / on port 80
-  # ----------------------------------------------------------
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -281,14 +216,7 @@ Resources:
       HealthCheckIntervalSeconds: 30
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 3
-      Tags:
-        - Key: Name
-          Value: !Sub "${EnvironmentName}-TG"
 
-  # ----------------------------------------------------------
-  # 10. ALB LISTENER
-  # Listens on port 80 and forwards to the Target Group
-  # ----------------------------------------------------------
   ALBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
@@ -299,69 +227,48 @@ Resources:
         - Type: forward
           TargetGroupArn: !Ref ALBTargetGroup
 
-  # ----------------------------------------------------------
-  # 11. LAUNCH TEMPLATE
-  # Blueprint for every EC2 instance the ASG launches.
-  # UserData script installs Apache and creates an HTML page
-  # showing the instance ID — critical for the live demo!
-  # ----------------------------------------------------------
   LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
       LaunchTemplateName: !Sub "${EnvironmentName}-LT"
       LaunchTemplateData:
-      ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}"
-      InstanceType: !Ref InstanceType
+        ImageId: ami-0c38b837cd80f13bb
+        InstanceType: !Ref InstanceType
         SecurityGroupIds:
           - !Ref EC2SecurityGroup
         UserData:
-          Fn::Base64: !Sub |
+          Fn::Base64: |
             #!/bin/bash
             yum update -y
             yum install -y httpd stress
             systemctl start httpd
             systemctl enable httpd
-
-            # Get instance metadata
             INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
             AZ=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
             PRIVATE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
-
-            # Create the web page — shows instance details for demo
-            cat > /var/www/html/index.html << EOF
+            cat > /var/www/html/index.html << HTMLEOF
             <!DOCTYPE html>
             <html>
-            <head>
-              <title>Auto Scaling Lab</title>
-              <style>
-                body { font-family: Arial, sans-serif; background: #1a1a2e; color: #eee; text-align: center; padding: 50px; }
-                .card { background: #16213e; border-radius: 12px; padding: 40px; display: inline-block; }
-                h1 { color: #e94560; }
-                .label { color: #aaa; font-size: 14px; }
-                .value { color: #0f3460; background: #e94560; padding: 6px 16px; border-radius: 6px; font-size: 18px; font-weight: bold; }
-              </style>
+            <head><title>Auto Scaling Lab</title>
+            <style>
+            body { font-family: Arial, sans-serif; background: #1a1a2e; color: #eee; text-align: center; padding: 50px; }
+            .card { background: #16213e; border-radius: 12px; padding: 40px; display: inline-block; }
+            h1 { color: #e94560; }
+            .value { background: #e94560; padding: 6px 16px; border-radius: 6px; font-size: 18px; font-weight: bold; }
+            </style>
             </head>
             <body>
-              <div class="card">
-                <h1>🚀 Auto Scaling Lab — NSS Phase 2</h1>
-                <p class="label">Instance ID</p>
-                <p><span class="value">$INSTANCE_ID</span></p>
-                <p class="label">Availability Zone</p>
-                <p><span class="value">$AZ</span></p>
-                <p class="label">Private IP</p>
-                <p><span class="value">$PRIVATE_IP</span></p>
-                <p class="label">Status</p>
-                <p><span class="value">✅ Healthy</span></p>
-              </div>
+            <div class="card">
+            <h1>Auto Scaling Lab</h1>
+            <p>Instance ID: <span class="value">$INSTANCE_ID</span></p>
+            <p>Availability Zone: <span class="value">$AZ</span></p>
+            <p>Private IP: <span class="value">$PRIVATE_IP</span></p>
+            <p>Status: <span class="value">Healthy</span></p>
+            </div>
             </body>
             </html>
-            EOF
+            HTMLEOF
 
-  # ----------------------------------------------------------
-  # 12. AUTO SCALING GROUP
-  # Min=1, Desired=1, Max=4 — as required
-  # Registers instances with the ALB Target Group automatically
-  # ----------------------------------------------------------
   AutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
@@ -384,11 +291,6 @@ Resources:
           Value: !Sub "${EnvironmentName}-Instance"
           PropagateAtLaunch: true
 
-  # ----------------------------------------------------------
-  # 13. SCALING POLICY — Scale OUT when CPU > 30%
-  # TargetTrackingScaling is the cleanest approach:
-  # AWS automatically adds/removes instances to maintain target
-  # ----------------------------------------------------------
   CPUScalingPolicy:
     Type: AWS::AutoScaling::ScalingPolicy
     Properties:
@@ -401,21 +303,15 @@ Resources:
         ScaleInCooldown: 60
         ScaleOutCooldown: 60
 
-# ============================================================
-# OUTPUTS — shown after stack creation, ALB DNS is key!
-# ============================================================
 Outputs:
-
   ALBDNS:
-    Description: "Paste this into your browser to access the app"
+    Description: Paste this into your browser to access the app
     Value: !GetAtt ApplicationLoadBalancer.DNSName
     Export:
       Name: !Sub "${EnvironmentName}-ALB-DNS"
-
   VPCId:
     Description: VPC ID
     Value: !Ref VPC
-
   AutoScalingGroupName:
-    Description: ASG Name for use in stress test commands
+    Description: ASG Name
     Value: !Ref AutoScalingGroup
