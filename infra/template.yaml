@@ -39,12 +39,10 @@ Parameters:
     Description: t3.micro is available in eu-north-1
 
   LatestAmiId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Type: String
     Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
-    Description: >
-      Automatically fetches the latest Amazon Linux 2 AMI
-      for the current region — no hardcoding needed.
-
+    Description: SSM path for latest Amazon Linux 2 AMI
+    
 # ============================================================
 # RESOURCES
 # ============================================================
