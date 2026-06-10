@@ -310,8 +310,8 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub "${EnvironmentName}-LT"
       LaunchTemplateData:
-        ImageId: !Ref LatestAmiId
-        InstanceType: !Ref InstanceType
+      ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}"        
+      InstanceType: !Ref InstanceType
         SecurityGroupIds:
           - !Ref EC2SecurityGroup
         UserData:
