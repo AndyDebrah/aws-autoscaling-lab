@@ -232,7 +232,7 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub "${EnvironmentName}-LT"
       LaunchTemplateData:
-        ImageId: ami-0fed63ea358539e44
+        ImageId: ami-068a1172ded871b50
         InstanceType: !Ref InstanceType
         SecurityGroupIds:
           - !Ref EC2SecurityGroup
