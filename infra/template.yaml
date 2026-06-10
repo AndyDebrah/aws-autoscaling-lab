@@ -194,7 +194,7 @@ Resources:
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: !Sub "${EnvironmentName}-ALB"
+      Name: asl-alb
       Scheme: internet-facing
       Type: application
       Subnets:
@@ -206,7 +206,7 @@ Resources:
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub "${EnvironmentName}-TG"
+      Name: asl-tg
       VpcId: !Ref VPC
       Protocol: HTTP
       Port: 80
@@ -232,7 +232,7 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub "${EnvironmentName}-LT"
       LaunchTemplateData:
-        ImageId: ami-0c38b837cd80f13bb
+        ImageId: ami-0fed63ea358539e44
         InstanceType: !Ref InstanceType
         SecurityGroupIds:
           - !Ref EC2SecurityGroup
@@ -246,28 +246,18 @@ Resources:
             INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
             AZ=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
             PRIVATE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
-            cat > /var/www/html/index.html << HTMLEOF
-            <!DOCTYPE html>
-            <html>
+            cat > /var/www/html/index.html <<EOF
+            <!DOCTYPE html><html>
             <head><title>Auto Scaling Lab</title>
-            <style>
-            body { font-family: Arial, sans-serif; background: #1a1a2e; color: #eee; text-align: center; padding: 50px; }
-            .card { background: #16213e; border-radius: 12px; padding: 40px; display: inline-block; }
-            h1 { color: #e94560; }
-            .value { background: #e94560; padding: 6px 16px; border-radius: 6px; font-size: 18px; font-weight: bold; }
-            </style>
-            </head>
-            <body>
-            <div class="card">
-            <h1>Auto Scaling Lab</h1>
+            <style>body{font-family:Arial;background:#1a1a2e;color:#eee;text-align:center;padding:50px}.card{background:#16213e;border-radius:12px;padding:40px;display:inline-block}h1{color:#e94560}.value{background:#e94560;padding:6px 16px;border-radius:6px;font-size:18px;font-weight:bold}</style>
+            </head><body><div class="card">
+            <h1>Auto Scaling Lab - NSS Phase 2</h1>
             <p>Instance ID: <span class="value">$INSTANCE_ID</span></p>
             <p>Availability Zone: <span class="value">$AZ</span></p>
             <p>Private IP: <span class="value">$PRIVATE_IP</span></p>
             <p>Status: <span class="value">Healthy</span></p>
-            </div>
-            </body>
-            </html>
-            HTMLEOF
+            </div></body></html>
+            EOF
 
   AutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
