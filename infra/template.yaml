@@ -230,6 +230,7 @@ Resources:
   LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
+    
       LaunchTemplateName: !Sub "${EnvironmentName}-LT"
       LaunchTemplateData:
         ImageId: ami-068a1172ded871b50
@@ -286,12 +287,13 @@ Resources:
     Properties:
       AutoScalingGroupName: !Ref AutoScalingGroup
       PolicyType: TargetTrackingScaling
+      EstimatedInstanceWarmup: 60
       TargetTrackingConfiguration:
         PredefinedMetricSpecification:
           PredefinedMetricType: ASGAverageCPUUtilization
         TargetValue: 30.0
-        ScaleInCooldown: 60
-        ScaleOutCooldown: 60
+        DisableScaleIn: false
+    
 
 Outputs:
   ALBDNS:
