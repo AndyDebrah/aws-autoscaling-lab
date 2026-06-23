@@ -194,7 +194,8 @@ Resources:
     Properties:
       RouteTableId: !Ref PrivateRouteTable
       SubnetId: !Ref PrivateSubnet2
-# ─────────────────────────────────────────
+
+  # ─────────────────────────────────────────
   # SECURITY GROUPS
   # ─────────────────────────────────────────
   ALBSecurityGroup:
@@ -240,7 +241,379 @@ Resources:
           Value: !Sub ${EnvironmentName}-EC2-SG
 
 
+  # ─────────────────────────────────────────
+  # APPLICATION LOAD BALANCER
+  # ─────────────────────────────────────────
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${EnvironmentName}-ALB
+      Scheme: internet-facing
+      Type: application
+      IpAddressType: ipv4
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-ALB
 
+  # ─────────────────────────────────────────
+  # TARGET GROUP
+  # ─────────────────────────────────────────
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${EnvironmentName}-TG
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      HealthCheckPort: traffic-port
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: 200
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '30'
+        - Key: load_balancing.algorithm.type
+          Value: round_robin
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-TG
+
+  # ─────────────────────────────────────────
+  # LISTENER
+  # ─────────────────────────────────────────
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+
+  # ─────────────────────────────────────────
+  # IAM ROLE FOR EC2 INSTANCES
+  # ─────────────────────────────────────────
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-EC2-Role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-EC2-Role
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub ${EnvironmentName}-EC2-Profile
+      Roles:
+        - !Ref EC2InstanceRole
+
+  # ─────────────────────────────────────────
+  # LAUNCH TEMPLATE
+  # ─────────────────────────────────────────
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${EnvironmentName}-LT
+      LaunchTemplateData:
+        ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
+        InstanceType: t2.micro
+        SecurityGroupIds:
+          - !Ref EC2SecurityGroup
+        IamInstanceProfile:
+          Arn: !GetAtt EC2InstanceProfile.Arn
+        MetadataOptions:
+          HttpTokens: required
+          HttpEndpoint: enabled
+          HttpPutResponseHopLimit: 1
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -e
+            exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
+            echo "=== Starting User Data Script ==="
+
+            # Update system packages
+            dnf update -y
+
+            # Install Apache HTTP Server
+            dnf install -y httpd stress
+
+            # Get instance metadata using IMDSv2
+            TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+              -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+
+            INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+              http://169.254.169.254/latest/meta-data/instance-id)
+
+            AVAILABILITY_ZONE=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+              http://169.254.169.254/latest/meta-data/placement/availability-zone)
+
+            PRIVATE_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+              http://169.254.169.254/latest/meta-data/local-ipv4)
+
+            # Deploy the web application
+            cat > /var/www/html/index.html << 'HTML'
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Auto Scaling Lab</title>
+              <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                body {
+                  font-family: Arial, sans-serif;
+                  background: #f0f4f8;
+                  display: flex;
+                  justify-content: center;
+                  align-items: center;
+                  min-height: 100vh;
+                }
+                .card {
+                  background: white;
+                  border-radius: 12px;
+                  padding: 40px;
+                  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                  max-width: 600px;
+                  width: 90%;
+                  text-align: center;
+                }
+                .badge {
+                  background: #FF9900;
+                  color: white;
+                  padding: 6px 16px;
+                  border-radius: 20px;
+                  font-size: 13px;
+                  font-weight: bold;
+                  display: inline-block;
+                  margin-bottom: 20px;
+                }
+                h1 { color: #232F3E; font-size: 24px; margin-bottom: 8px; }
+                .subtitle { color: #666; margin-bottom: 30px; font-size: 14px; }
+                .info-grid {
+                  display: grid;
+                  gap: 16px;
+                  margin-bottom: 30px;
+                }
+                .info-item {
+                  background: #f8f9fa;
+                  border: 1px solid #e9ecef;
+                  border-radius: 8px;
+                  padding: 16px;
+                  text-align: left;
+                }
+                .info-label {
+                  font-size: 11px;
+                  text-transform: uppercase;
+                  color: #888;
+                  letter-spacing: 1px;
+                  margin-bottom: 6px;
+                }
+                .info-value {
+                  font-size: 18px;
+                  font-weight: bold;
+                  color: #232F3E;
+                  font-family: monospace;
+                }
+                .stress-section {
+                  border-top: 1px solid #eee;
+                  padding-top: 24px;
+                }
+                .stress-btn {
+                  background: #dc3545;
+                  color: white;
+                  border: none;
+                  padding: 12px 28px;
+                  border-radius: 8px;
+                  font-size: 15px;
+                  cursor: pointer;
+                  font-weight: bold;
+                }
+                .stress-btn:hover { background: #c82333; }
+                .stress-note {
+                  font-size: 12px;
+                  color: #888;
+                  margin-top: 10px;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="card">
+                <div class="badge">AWS Auto Scaling Lab</div>
+                <h1>Instance Information</h1>
+                <p class="subtitle">Served by an EC2 instance behind the Application Load Balancer</p>
+                <div class="info-grid">
+                  <div class="info-item">
+                    <div class="info-label">Instance ID</div>
+                    <div class="info-value" id="instance-id">Loading...</div>
+                  </div>
+                  <div class="info-item">
+                    <div class="info-label">Availability Zone</div>
+                    <div class="info-value" id="az">Loading...</div>
+                  </div>
+                  <div class="info-item">
+                    <div class="info-label">Private IP Address</div>
+                    <div class="info-value" id="private-ip">Loading...</div>
+                  </div>
+                </div>
+                <div class="stress-section">
+                  <button class="stress-btn" onclick="triggerStress()">
+                    Trigger CPU Stress Test
+                  </button>
+                  <p class="stress-note">Runs 60s CPU stress to trigger Auto Scaling scale-out</p>
+                </div>
+              </div>
+              <script>
+                fetch('/instance-info')
+                  .then(r => r.json())
+                  .then(d => {
+                    document.getElementById('instance-id').textContent = d.instance_id;
+                    document.getElementById('az').textContent = d.az;
+                    document.getElementById('private-ip').textContent = d.private_ip;
+                  })
+                  .catch(() => {
+                    document.getElementById('instance-id').textContent = 'INSTANCE_ID_PLACEHOLDER';
+                    document.getElementById('az').textContent = 'AZ_PLACEHOLDER';
+                    document.getElementById('private-ip').textContent = 'IP_PLACEHOLDER';
+                  });
+
+                function triggerStress() {
+                  fetch('/stress')
+                    .then(() => alert('CPU stress started on this instance for 60 seconds!'))
+                    .catch(() => alert('Stress triggered'));
+                }
+              </script>
+            </body>
+            </html>
+            HTML
+
+            # Replace placeholders with actual metadata values
+            sed -i "s/INSTANCE_ID_PLACEHOLDER/$INSTANCE_ID/g" /var/www/html/index.html
+            sed -i "s/AZ_PLACEHOLDER/$AVAILABILITY_ZONE/g" /var/www/html/index.html
+            sed -i "s/IP_PLACEHOLDER/$PRIVATE_IP/g" /var/www/html/index.html
+
+            # Create instance-info JSON endpoint
+            cat > /var/www/html/instance-info << EOF
+            {"instance_id":"$INSTANCE_ID","az":"$AVAILABILITY_ZONE","private_ip":"$PRIVATE_IP"}
+            EOF
+
+            # Create stress endpoint using CGI
+            dnf install -y mod_cgi
+
+            mkdir -p /var/www/cgi-bin
+
+            cat > /var/www/cgi-bin/stress.sh << 'STRESS'
+            #!/bin/bash
+            echo "Content-Type: text/plain"
+            echo ""
+            echo "CPU stress started"
+            nohup stress --cpu 2 --timeout 60 &
+            STRESS
+
+            chmod +x /var/www/cgi-bin/stress.sh
+
+            # Configure Apache
+            cat > /etc/httpd/conf.d/app.conf << 'APACHECONF'
+            Alias /stress /var/www/cgi-bin/stress.sh
+            <Directory /var/www/cgi-bin>
+                Options +ExecCGI
+                AddHandler cgi-script .sh
+            </Directory>
+            APACHECONF
+
+            # Enable and start Apache
+            systemctl enable httpd
+            systemctl start httpd
+
+            echo "=== User Data Script Complete ==="
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub ${EnvironmentName}-Instance
+          - ResourceType: volume
+            Tags:
+              - Key: Name
+                Value: !Sub ${EnvironmentName}-Volume
+
+  # ─────────────────────────────────────────
+  # AUTO SCALING GROUP
+  # ─────────────────────────────────────────
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Sub ${EnvironmentName}-ASG
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      MinSize: '1'
+      DesiredCapacity: '1'
+      MaxSize: '4'
+      TargetGroupARNs:
+        - !Ref ALBTargetGroup
+      VPCZoneIdentifier:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 120
+      MetricsCollection:
+        - Granularity: 1Minute
+          Metrics:
+            - GroupMinSize
+            - GroupMaxSize
+            - GroupDesiredCapacity
+            - GroupInServiceInstances
+            - GroupPendingInstances
+            - GroupTerminatingInstances
+            - GroupTotalInstances
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-ASG-Instance
+          PropagateAtLaunch: true
+        - Key: Environment
+          Value: !Ref EnvironmentName
+          PropagateAtLaunch: true
+
+  # ─────────────────────────────────────────
+  # TARGET TRACKING SCALING POLICY
+  # ─────────────────────────────────────────
+  CPUTargetTrackingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 30.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        DisableScaleIn: false
+      EstimatedInstanceWarmup: 120
 
 
   
@@ -287,5 +660,35 @@ Outputs:
     Export:
       Name: !Sub ${EnvironmentName}-EC2-SG
 
+
+  ALBDNSName:
+    Description: DNS name of the Application Load Balancer
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub ${EnvironmentName}-ALB-DNS
+
+  ALBTargetGroup:
+    Description: Target Group ARN
+    Value: !Ref ALBTargetGroup
+    Export:
+      Name: !Sub ${EnvironmentName}-TG
+
+  LaunchTemplate:
+    Description: Launch Template ID
+    Value: !Ref LaunchTemplate
+    Export:
+      Name: !Sub ${EnvironmentName}-LT
+
+  AutoScalingGroup:
+    Description: Auto Scaling Group Name
+    Value: !Ref AutoScalingGroup
+    Export:
+      Name: !Sub ${EnvironmentName}-ASG
+
+  ScalingPolicy:
+    Description: Target Tracking Scaling Policy
+    Value: !Ref CPUTargetTrackingPolicy
+    Export:
+      Name: !Sub ${EnvironmentName}-ScalingPolicy
 
 
