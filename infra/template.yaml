@@ -517,9 +517,14 @@ Resources:
             sed -i "s/IP_PLACEHOLDER/$PRIVATE_IP/g" /var/www/html/index.html
 
             # Create instance-info JSON endpoint
-            cat > /var/www/html/instance-info << EOF
-            {"instance_id":"$INSTANCE_ID","az":"$AVAILABILITY_ZONE","private_ip":"$PRIVATE_IP"}
+            cat > /var/www/html/instance-info << 'EOF'
+            {"instance_id":"INSTANCE_ID_PLACEHOLDER","az":"AZ_PLACEHOLDER","private_ip":"IP_PLACEHOLDER"}
             EOF
+
+            # Replace placeholders in instance-info
+            sed -i "s/INSTANCE_ID_PLACEHOLDER/$INSTANCE_ID/g" /var/www/html/instance-info
+            sed -i "s/AZ_PLACEHOLDER/$AVAILABILITY_ZONE/g" /var/www/html/instance-info
+            sed -i "s/IP_PLACEHOLDER/$PRIVATE_IP/g" /var/www/html/instance-info
 
             # Create stress endpoint using CGI
             dnf install -y mod_cgi
