@@ -7,7 +7,7 @@ parameters:
   PrivateSubnet1CIDR: 10.0.3.0/24
   PrivateSubnet2CIDR: 10.0.4.0/24
 capabilities:
-  - CAPABILITY_NAMED_IAM
+  CAPABILITY_NAMED_IAM
 tags:
   Project: AutoScalingLab
   Environment: Lab
