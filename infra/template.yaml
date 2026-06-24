@@ -340,6 +340,13 @@ Resources:
           - !Ref EC2SecurityGroup
         IamInstanceProfile:
           Arn: !GetAtt EC2InstanceProfile.Arn
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: 8
+              VolumeType: gp3
+              Encrypted: true
+              DeleteOnTermination: true
         MetadataOptions:
           HttpTokens: required
           HttpEndpoint: enabled
